@@ -65,7 +65,7 @@ struct m6502::CPU{
 
     // opcodes
 	static constexpr Byte
-		//LDA
+		// LDA
 		INS_LDA_IM = 0xA9,
 		INS_LDA_ZP = 0xA5,
 		INS_LDA_ZPX = 0xB5,
@@ -74,18 +74,45 @@ struct m6502::CPU{
 		INS_LDA_ABSY = 0xB9,
 		INS_LDA_INDX = 0xA1,
 		INS_LDA_INDY = 0xB1,
-        //LDX
+        
+        // LDX
 		INS_LDX_IM = 0xA2,
 		INS_LDX_ZP = 0xA6,
 		INS_LDX_ZPY = 0xB6,
 		INS_LDX_ABS = 0xAE,
 		INS_LDX_ABSY = 0xBE,
-		//LDY
+		
+        // LDY
 		INS_LDY_IM = 0xA0,
 		INS_LDY_ZP = 0xA4,
 		INS_LDY_ZPX = 0xB4,
 		INS_LDY_ABS = 0xAC,
-		INS_LDY_ABSX = 0xBC;
+		INS_LDY_ABSX = 0xBC,
+        
+        // STA
+		INS_STA_ZP = 0x85,
+		INS_STA_ZPX = 0x95,
+		INS_STA_ABS = 0x8D,
+		INS_STA_ABSX = 0x9D,
+		INS_STA_ABSY = 0x99,
+		INS_STA_INDX = 0x81,
+		INS_STA_INDY = 0x91,
+		
+        // STX
+		INS_STX_ZP = 0x86,
+		INS_STX_ZPY = 0x96,
+		INS_STX_ABS = 0x8E,
+		
+        // STY
+		INS_STY_ZP = 0x84,
+		INS_STY_ZPX = 0x94,
+		INS_STY_ABS = 0x8C,
+
+        // Transfer Registers
+		INS_TAX = 0xAA,
+		INS_TAY = 0xA8,
+		INS_TXA = 0x8A,
+		INS_TYA = 0x98;
 
 
     // Functions
@@ -126,6 +153,17 @@ struct m6502::CPU{
 
 		return loByte | (hiByte << 8);
     }
+
+	void writeByte(Byte value, u32& cycles, Word addr, Mem& memory){
+		memory[addr] = value;
+		cycles--;
+	}
+
+	void writeWord(Word value, u32& cycles, Word addr, Mem& memory){
+		memory[addr] = value & 0xFF;
+		memory[addr + 1] = (value >> 8);
+		cycles -= 2;
+	}
 
     void setZeroAndNegativeFlags(Byte reg){
         stflag.Z = (reg==0);
@@ -312,6 +350,134 @@ struct m6502::CPU{
                     setZeroAndNegativeFlags(Y);
                 } break;
 
+
+                case INS_STA_ZP:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    writeByte(A, cycles, zeroPageAddr, memory);
+                } break;
+
+                case INS_STA_ZPX:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+
+                    zeroPageAddr += X;
+                    cycles--;
+
+                    writeByte(A, cycles, zeroPageAddr, memory);
+                } break;
+
+                case INS_STA_ABS:{
+                    Word absAddr = fetchWord(cycles, memory);
+                    writeByte(A, cycles, absAddr, memory);
+                } break;
+
+                case INS_STA_ABSX:{
+                    Word absAddr = fetchWord(cycles, memory);
+
+                    Word absAddrX = absAddr + X;
+
+                    const bool pageBoundaryCrossed = (absAddr ^ absAddrX) >> 8;
+                    if(pageBoundaryCrossed)
+                        cycles--;
+
+                    writeByte(A, cycles, absAddrX, memory);
+                } break;
+
+                case INS_STA_ABSY:{
+                    Word absAddr = fetchWord(cycles, memory);
+
+                    Word absAddrY = absAddr + Y;
+
+                    const bool pageBoundaryCrossed = (absAddr ^ absAddrY) >> 8;
+                    if(pageBoundaryCrossed)
+                        cycles--;
+
+                    writeByte(A, cycles, absAddrY, memory);
+                } break;
+
+                case INS_STA_INDX:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    zeroPageAddr += X;
+                    cycles--;
+                    Word effectiveAddr = readWord(cycles, zeroPageAddr, memory);
+
+                    writeByte(A, cycles, effectiveAddr, memory);
+                } break;
+
+                case INS_STA_INDY:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    zeroPageAddr += Y;
+                    cycles--;
+                    Word effectiveAddr = readWord(cycles, zeroPageAddr, memory);
+
+                    writeByte(A, cycles, effectiveAddr, memory);
+                } break;
+
+
+                case INS_STX_ZP:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    writeByte(X, cycles, zeroPageAddr, memory);
+                } break;
+
+                case INS_STX_ZPY:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+
+                    zeroPageAddr += Y;
+                    cycles--;
+
+                    writeByte(X, cycles, zeroPageAddr, memory);
+                } break;
+
+                case INS_STX_ABS:{
+                    Word absAddr = fetchWord(cycles, memory);
+                    writeByte(X, cycles, absAddr, memory);
+                } break;
+
+
+                case INS_STY_ZP:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    writeByte(Y, cycles, zeroPageAddr, memory);
+                } break;
+
+                case INS_STY_ZPX:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+
+                    zeroPageAddr += X;
+                    cycles--;
+
+                    writeByte(Y, cycles, zeroPageAddr, memory);
+                } break;
+
+                case INS_STY_ABS:{
+                    Word absAddr = fetchWord(cycles, memory);
+                    writeByte(Y, cycles, absAddr, memory);
+                } break;
+
+
+                case INS_TAX:{
+                    X = A;
+                    cycles--;
+                    setZeroAndNegativeFlags(X);
+                } break;
+
+                case INS_TAY:{
+                    Y = A;
+                    cycles--;
+                    setZeroAndNegativeFlags(Y);
+                } break;
+
+                case INS_TXA:{
+                    A = X;
+                    cycles--;
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_TYA:{
+                    A = Y;
+                    cycles--;
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+
                 default:{
                     cout << "Unhandled instruction\n";
                     cycles = 0;
@@ -326,7 +492,10 @@ int main(){
     m6502::CPU cpu;    // Create CPU
     m6502::Mem mem;    // Create Memory
 
-    cpu.reset(0xFFF9, mem);
+    m6502::Word codeSegAddr = 0xE000;
+    // m6502::Word dataSegAddr = 0x7471;
+
+    cpu.reset(codeSegAddr, mem);
 
     //******************************************
     // inline data segment : start
@@ -335,11 +504,11 @@ int main(){
     // inline data segment : end
 
     // inline code segment : start
-    mem[0xFFF9] = m6502::CPU::INS_LDX_IM;
-    mem[0xFFFA] = 0x36;
-    mem[0xFFFB] = m6502::CPU::INS_LDA_ABSX;
-    mem[0xFFFC] = 0x71;
-    mem[0xFFFD] = 0x74;
+    mem[codeSegAddr++] = m6502::CPU::INS_LDX_IM;
+    mem[codeSegAddr++] = 0x36;
+    mem[codeSegAddr++] = m6502::CPU::INS_LDA_ABSX;
+    mem[codeSegAddr++] = 0x71;
+    mem[codeSegAddr++] = 0x74;
     // inline code segment : end
     //******************************************
 

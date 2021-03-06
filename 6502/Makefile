@@ -2,7 +2,7 @@
 CC = g++
 # LIBS = -pthread -lm -lrt
 CFLAGS  = -Wall
-# DEPS = queue_ops.h
+DEPS = 6502_cpu.h
 TARGET = main_cpu
 
 all: $(TARGET)

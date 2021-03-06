@@ -85,7 +85,23 @@ struct m6502::CPU{
         return data;
     }
 
-    Byte readByte(u32& cycles, Byte addr, Mem& memory){
+    Word fetchWord(u32& cycles, Mem& memory){
+        Word data = memory[PC];
+        PC++;
+
+        data |= (memory[PC] << 8);
+        PC++;
+
+        cycles -= 2;
+
+        // if(PLATFORM_BIG_ENDIAN){
+        //     swapBytes(data);
+        // }
+
+        return data;
+    }
+
+    Byte readByte(u32& cycles, Word addr, Mem& memory){
         Byte data = memory[addr];
         cycles--;
 
@@ -102,7 +118,7 @@ struct m6502::CPU{
 
 
     void reset(Mem& memory){
-		PC = 0xFFFC;
+		PC = 0xFFFB;
         SP = 0x00FF;
         stflag.C = stflag.Z = stflag.I = stflag.D = stflag.B = stflag.V = stflag.N = 0;
         A = X = Y = 0;
@@ -111,7 +127,8 @@ struct m6502::CPU{
 
     void exec(u32 cycles, Mem& memory){
         while(cycles > 0){
-            Byte instr = fetchByte(cycles, memory);
+            Byte instr = fetchByte(cycles, memory);     // Read instruction opcode
+
             switch(instr){
                 case INS_LDA_IM:{
                     Byte value = fetchByte(cycles, memory);
@@ -127,14 +144,20 @@ struct m6502::CPU{
                     stflag.N = (A & 0b10000000) > 0;
                 } break;
 
-
                 case INS_LDA_ZPX:{
                     Byte zeroPageAddr = fetchByte(cycles, memory);
-                    
+
                     zeroPageAddr += X;
                     cycles--;
 
                     A = readByte(cycles, zeroPageAddr, memory);
+                    stflag.Z = (A==0);
+                    stflag.N = (A & 0b10000000) > 0;
+                } break;
+
+                case INS_LDA_ABS:{
+                    Word absAddr = fetchWord(cycles, memory);
+                    A = readByte(cycles, absAddr, memory);
                     stflag.Z = (A==0);
                     stflag.N = (A & 0b10000000) > 0;
                 } break;
@@ -155,14 +178,20 @@ int main(){
 
     cpu.reset(mem);
 
-    // inline code : memory load
-    mem[0xFFFC] = m6502::CPU::INS_LDA_ZP;
-    mem[0xFFFD] = 0x71;
-    mem[0x0071] = 0xAD;
-    // inline code : end
+    //******************************************
+    // inline data segment : start
+    mem[0x7471] = 0x24;
+    // inline data segment : end
+
+    // inline code segment : start
+    mem[0xFFFB] = m6502::CPU::INS_LDA_ABS;
+    mem[0xFFFC] = 0x71;
+    mem[0xFFFD] = 0x74;
+    // inline code segment : end
+    //******************************************
 
     cpu.printStatus();
-    cpu.exec(3, mem);
+    cpu.exec(4, mem);
     cpu.printStatus();
     
 

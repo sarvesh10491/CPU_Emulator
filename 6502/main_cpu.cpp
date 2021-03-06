@@ -73,7 +73,19 @@ struct m6502::CPU{
 		INS_LDA_ABSX = 0xBD,
 		INS_LDA_ABSY = 0xB9,
 		INS_LDA_INDX = 0xA1,
-		INS_LDA_INDY = 0xB1;
+		INS_LDA_INDY = 0xB1,
+        //LDX
+		INS_LDX_IM = 0xA2,
+		INS_LDX_ZP = 0xA6,
+		INS_LDX_ZPY = 0xB6,
+		INS_LDX_ABS = 0xAE,
+		INS_LDX_ABSY = 0xBE,
+		//LDY
+		INS_LDY_IM = 0xA0,
+		INS_LDY_ZP = 0xA4,
+		INS_LDY_ZPX = 0xB4,
+		INS_LDY_ABS = 0xAC,
+		INS_LDY_ABSX = 0xBC;
 
 
     // Functions
@@ -108,17 +120,32 @@ struct m6502::CPU{
         return data;
     }
 
+    Byte readWord(u32& cycles, Word addr, Mem& memory){
+        Byte loByte = readByte(cycles, addr, memory);
+		Byte hiByte = readByte(cycles, addr+1, memory);
+
+		return loByte | (hiByte << 8);
+    }
+
+    void setZeroAndNegativeFlags(Byte reg){
+        stflag.Z = (reg==0);
+        stflag.N = (reg & 0b10000000) > 0;
+    }
+
     void printStatus(){
         printf("--------------------------------------\n");
-        printf( "A: 0x%x  X: 0x%x  Y: 0x%x\n", A, X, Y );
-	    printf( "PC: 0x%x  SP: 0x%x\n", PC, SP );
-	    printf( "PS: 0x%x\n", PS );
+        printf( "A: 0x%02x  X: 0x%02x  Y: 0x%02x\n", A, X, Y );
+	    printf( "PC: 0x%04x  SP: 0x%02x\n", PC, SP );
+	    printf( "PS: 0x%02x\n", PS );
+
+        // printf("0x%04x      0x%02x   | 0x%02x     0x%02x     0x%02x     | 0x%02x  \n", PC, SP, A, X, Y, PS);
+
         printf("======================================\n");
     }
 
 
-    void reset(Mem& memory){
-		PC = 0xFFFB;
+    void reset(Word resetVector, Mem& memory){
+		PC = resetVector;
         SP = 0x00FF;
         stflag.C = stflag.Z = stflag.I = stflag.D = stflag.B = stflag.V = stflag.N = 0;
         A = X = Y = 0;
@@ -131,17 +158,14 @@ struct m6502::CPU{
 
             switch(instr){
                 case INS_LDA_IM:{
-                    Byte value = fetchByte(cycles, memory);
-                    A = value;
-                    stflag.Z = (A==0);
-                    stflag.N = (A & 0b10000000) > 0;
+                    A = fetchByte(cycles, memory);
+                    setZeroAndNegativeFlags(A);
                 } break;
 
                 case INS_LDA_ZP:{
                     Byte zeroPageAddr = fetchByte(cycles, memory);
                     A = readByte(cycles, zeroPageAddr, memory);
-                    stflag.Z = (A==0);
-                    stflag.N = (A & 0b10000000) > 0;
+                    setZeroAndNegativeFlags(A);
                 } break;
 
                 case INS_LDA_ZPX:{
@@ -151,15 +175,141 @@ struct m6502::CPU{
                     cycles--;
 
                     A = readByte(cycles, zeroPageAddr, memory);
-                    stflag.Z = (A==0);
-                    stflag.N = (A & 0b10000000) > 0;
+                    setZeroAndNegativeFlags(A);
                 } break;
 
                 case INS_LDA_ABS:{
                     Word absAddr = fetchWord(cycles, memory);
                     A = readByte(cycles, absAddr, memory);
-                    stflag.Z = (A==0);
-                    stflag.N = (A & 0b10000000) > 0;
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_LDA_ABSX:{
+                    Word absAddr = fetchWord(cycles, memory);
+
+                    Word absAddrX = absAddr + X;
+
+                    const bool pageBoundaryCrossed = (absAddr ^ absAddrX) >> 8;
+                    if(pageBoundaryCrossed)
+                        cycles--;
+
+                    A = readByte(cycles, absAddrX, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_LDA_ABSY:{
+                    Word absAddr = fetchWord(cycles, memory);
+
+                    Word absAddrY = absAddr + Y;
+
+                    const bool pageBoundaryCrossed = (absAddr ^ absAddrY) >> 8;
+                    if(pageBoundaryCrossed)
+                        cycles--;
+
+                    A = readByte(cycles, absAddrY, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_LDA_INDX:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    zeroPageAddr += X;
+                    cycles--;
+                    Word effectiveAddr = readWord(cycles, zeroPageAddr, memory);
+
+                    A = readByte(cycles, effectiveAddr, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_LDA_INDY:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    zeroPageAddr += Y;
+                    cycles--;
+                    Word effectiveAddr = readWord(cycles, zeroPageAddr, memory);
+
+                    A = readByte(cycles, effectiveAddr, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+
+                case INS_LDX_IM:{
+                    X = fetchByte(cycles, memory);
+                    setZeroAndNegativeFlags(X);
+                } break;
+
+                case INS_LDX_ZP:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    X = readByte(cycles, zeroPageAddr, memory);
+                    setZeroAndNegativeFlags(X);
+                } break;
+
+                case INS_LDX_ZPY:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+
+                    zeroPageAddr += Y;
+                    cycles--;
+
+                    X = readByte(cycles, zeroPageAddr, memory);
+                    setZeroAndNegativeFlags(X);
+                } break;
+
+                case INS_LDX_ABS:{
+                    Word absAddr = fetchWord(cycles, memory);
+                    X = readByte(cycles, absAddr, memory);
+                    setZeroAndNegativeFlags(X);
+                } break;
+
+                case INS_LDX_ABSY:{
+                    Word absAddr = fetchWord(cycles, memory);
+
+                    Word absAddrY = absAddr + Y;
+
+                    const bool pageBoundaryCrossed = (absAddr ^ absAddrY) >> 8;
+                    if(pageBoundaryCrossed)
+                        cycles--;
+
+                    X = readByte(cycles, absAddrY, memory);
+                    setZeroAndNegativeFlags(X);
+                } break;
+
+
+                case INS_LDY_IM:{
+                    Y = fetchByte(cycles, memory);
+                    setZeroAndNegativeFlags(Y);
+                } break;
+
+                case INS_LDY_ZP:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    Y = readByte(cycles, zeroPageAddr, memory);
+                    setZeroAndNegativeFlags(Y);
+                } break;
+
+                case INS_LDY_ZPX:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+
+                    zeroPageAddr += X;
+                    cycles--;
+
+                    Y = readByte(cycles, zeroPageAddr, memory);
+                    setZeroAndNegativeFlags(Y);
+                } break;
+
+                case INS_LDY_ABS:{
+                    Word absAddr = fetchWord(cycles, memory);
+                    Y = readByte(cycles, absAddr, memory);
+                    setZeroAndNegativeFlags(Y);
+                } break;
+
+                case INS_LDY_ABSX:{
+                    Word absAddr = fetchWord(cycles, memory);
+
+                    Word absAddrX = absAddr + X;
+
+                    const bool pageBoundaryCrossed = (absAddr ^ absAddrX) >> 8;
+                    if(pageBoundaryCrossed)
+                        cycles--;
+
+                    Y = readByte(cycles, absAddrX, memory);
+                    setZeroAndNegativeFlags(Y);
                 } break;
 
                 default:{
@@ -176,22 +326,27 @@ int main(){
     m6502::CPU cpu;    // Create CPU
     m6502::Mem mem;    // Create Memory
 
-    cpu.reset(mem);
+    cpu.reset(0xFFF9, mem);
 
     //******************************************
     // inline data segment : start
     mem[0x7471] = 0x24;
+    mem[0x74A7] = 0x49;
     // inline data segment : end
 
     // inline code segment : start
-    mem[0xFFFB] = m6502::CPU::INS_LDA_ABS;
+    mem[0xFFF9] = m6502::CPU::INS_LDX_IM;
+    mem[0xFFFA] = 0x36;
+    mem[0xFFFB] = m6502::CPU::INS_LDA_ABSX;
     mem[0xFFFC] = 0x71;
     mem[0xFFFD] = 0x74;
     // inline code segment : end
     //******************************************
 
+    cout << "\nInitial register status\n";
     cpu.printStatus();
-    cpu.exec(4, mem);
+    cpu.exec(6, mem);
+    cout << "Final register status\n";
     cpu.printStatus();
     
 

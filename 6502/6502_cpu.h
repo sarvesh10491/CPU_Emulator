@@ -4,6 +4,7 @@
 #include <fstream>
 #include <string>
 #include <sstream>
+#include "cmd_map.h"
 using namespace std;
 
 namespace m6502{
@@ -30,8 +31,7 @@ struct m6502::Flags{
 	Byte N : 1;         //7: Negative
 };
 
-struct m6502::Mem
-{
+struct m6502::Mem{
 	static constexpr u32 MAX_MEM = 1024 * 64;
 	Byte Data[MAX_MEM];
 
@@ -64,6 +64,15 @@ struct m6502::CPU{
 		Byte PS;	
 		Flags stflag;
 	};
+
+    // Process status bits
+	static constexpr Byte
+		NegativeFlagBit = 0b10000000,
+		OverflowFlagBit = 0b01000000,
+		BreakFlagBit = 0b000010000,
+		UnusedFlagBit = 0b000100000,
+		InterruptDisableFlagBit = 0b000000100,
+		ZeroBit = 0b00000001;
 
 
     // opcodes
@@ -115,7 +124,41 @@ struct m6502::CPU{
 		INS_TAX = 0xAA,
 		INS_TAY = 0xA8,
 		INS_TXA = 0x8A,
-		INS_TYA = 0x98;
+		INS_TYA = 0x98,
+
+        //AND
+		INS_AND_IM = 0x29,
+		INS_AND_ZP = 0x25,
+		INS_AND_ZPX = 0x35,
+		INS_AND_ABS = 0x2D,
+		INS_AND_ABSX = 0x3D,
+		INS_AND_ABSY = 0x39,
+		INS_AND_INDX = 0x21,
+		INS_AND_INDY = 0x31,
+
+        //OR
+		INS_ORA_IM = 0x09,
+		INS_ORA_ZP = 0x05,
+		INS_ORA_ZPX = 0x15,
+		INS_ORA_ABS = 0x0D,
+		INS_ORA_ABSX = 0x1D,
+		INS_ORA_ABSY = 0x19,
+		INS_ORA_INDX = 0x01,
+		INS_ORA_INDY = 0x11,
+
+		//EOR
+		INS_EOR_IM = 0x49,
+		INS_EOR_ZP  = 0x45,
+		INS_EOR_ZPX = 0x55,
+		INS_EOR_ABS = 0x4D,
+		INS_EOR_ABSX = 0x5D,
+		INS_EOR_ABSY = 0x59,
+		INS_EOR_INDX = 0x41,
+		INS_EOR_INDY = 0x51,
+
+        //BIT
+		INS_BIT_ZP = 0x24,
+		INS_BIT_ABS = 0x2C;
 
 
     // Functions
@@ -193,23 +236,31 @@ struct m6502::CPU{
         memory.initialise();
 	}
 
+    // TODO : Fix this!
     void loadROM(Word& codeSegAddr, Mem& memory){
         string line;
         ifstream myfile("ROM.asm");
 
         if(myfile.is_open()){
             while(getline(myfile, line)){
+                // printf("%s\n", &*line.begin());
+                // auto it;
+                // cmd_it = cmd_map.find(&*line.begin());
+                if(cmd_map.count(line)>0){
+                    printf("%s - 0x%x\n", &*line.begin(), cmd_map.at(line));
+                    memory[codeSegAddr++] = cmd_map.at(line);
+                }
+                else{
+                    std::stringstream hexStringStream; 
+                    hexStringStream >> std::hex;
+                    hexStringStream.clear();
+                    hexStringStream.str(line);
 
-                std::stringstream hexStringStream; 
-                hexStringStream >> std::hex;
+                    int tmpValue = 0;
+                    hexStringStream >> tmpValue;
 
-                hexStringStream.clear();
-                hexStringStream.str(line);
-
-                int tmpValue = 0;
-                hexStringStream >> tmpValue;
-
-                memory[codeSegAddr++] = static_cast<unsigned char>(tmpValue);
+                    memory[codeSegAddr++] = static_cast<unsigned char>(tmpValue);
+                }
             }
             myfile.close();
         }
@@ -500,6 +551,247 @@ struct m6502::CPU{
                     A = Y;
                     cycles--;
                     setZeroAndNegativeFlags(A);
+                } break;
+
+
+                case INS_AND_IM:{
+                    A &= fetchByte(cycles, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_AND_ZP:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    A &= readByte(cycles, zeroPageAddr, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_AND_ZPX:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+
+                    zeroPageAddr += X;
+                    cycles--;
+
+                    A &= readByte(cycles, zeroPageAddr, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_AND_ABS:{
+                    Word absAddr = fetchWord(cycles, memory);
+                    A &= readByte(cycles, absAddr, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_AND_ABSX:{
+                    Word absAddr = fetchWord(cycles, memory);
+
+                    Word absAddrX = absAddr + X;
+
+                    const bool pageBoundaryCrossed = (absAddr ^ absAddrX) >> 8;
+                    if(pageBoundaryCrossed)
+                        cycles--;
+
+                    A &= readByte(cycles, absAddrX, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_AND_ABSY:{
+                    Word absAddr = fetchWord(cycles, memory);
+
+                    Word absAddrY = absAddr + Y;
+
+                    const bool pageBoundaryCrossed = (absAddr ^ absAddrY) >> 8;
+                    if(pageBoundaryCrossed)
+                        cycles--;
+
+                    A &= readByte(cycles, absAddrY, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_AND_INDX:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    zeroPageAddr += X;
+                    cycles--;
+                    Word effectiveAddr = readWord(cycles, zeroPageAddr, memory);
+
+                    A &= readByte(cycles, effectiveAddr, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_AND_INDY:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    zeroPageAddr += Y;
+                    cycles--;
+                    Word effectiveAddr = readWord(cycles, zeroPageAddr, memory);
+
+                    A &= readByte(cycles, effectiveAddr, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+
+                case INS_ORA_IM:{
+                    A |= fetchByte(cycles, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_ORA_ZP:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    A |= readByte(cycles, zeroPageAddr, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_ORA_ZPX:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+
+                    zeroPageAddr += X;
+                    cycles--;
+
+                    A |= readByte(cycles, zeroPageAddr, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_ORA_ABS:{
+                    Word absAddr = fetchWord(cycles, memory);
+                    A |= readByte(cycles, absAddr, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_ORA_ABSX:{
+                    Word absAddr = fetchWord(cycles, memory);
+
+                    Word absAddrX = absAddr + X;
+
+                    const bool pageBoundaryCrossed = (absAddr ^ absAddrX) >> 8;
+                    if(pageBoundaryCrossed)
+                        cycles--;
+
+                    A |= readByte(cycles, absAddrX, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_ORA_ABSY:{
+                    Word absAddr = fetchWord(cycles, memory);
+
+                    Word absAddrY = absAddr + Y;
+
+                    const bool pageBoundaryCrossed = (absAddr ^ absAddrY) >> 8;
+                    if(pageBoundaryCrossed)
+                        cycles--;
+
+                    A |= readByte(cycles, absAddrY, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_ORA_INDX:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    zeroPageAddr += X;
+                    cycles--;
+                    Word effectiveAddr = readWord(cycles, zeroPageAddr, memory);
+
+                    A |= readByte(cycles, effectiveAddr, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_ORA_INDY:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    zeroPageAddr += Y;
+                    cycles--;
+                    Word effectiveAddr = readWord(cycles, zeroPageAddr, memory);
+
+                    A |= readByte(cycles, effectiveAddr, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+
+                case INS_EOR_IM:{
+                    A ^= fetchByte(cycles, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_EOR_ZP:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    A ^= readByte(cycles, zeroPageAddr, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_EOR_ZPX:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+
+                    zeroPageAddr += X;
+                    cycles--;
+
+                    A ^= readByte(cycles, zeroPageAddr, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_EOR_ABS:{
+                    Word absAddr = fetchWord(cycles, memory);
+                    A ^= readByte(cycles, absAddr, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_EOR_ABSX:{
+                    Word absAddr = fetchWord(cycles, memory);
+
+                    Word absAddrX = absAddr + X;
+
+                    const bool pageBoundaryCrossed = (absAddr ^ absAddrX) >> 8;
+                    if(pageBoundaryCrossed)
+                        cycles--;
+
+                    A ^= readByte(cycles, absAddrX, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_EOR_ABSY:{
+                    Word absAddr = fetchWord(cycles, memory);
+
+                    Word absAddrY = absAddr + Y;
+
+                    const bool pageBoundaryCrossed = (absAddr ^ absAddrY) >> 8;
+                    if(pageBoundaryCrossed)
+                        cycles--;
+
+                    A ^= readByte(cycles, absAddrY, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_EOR_INDX:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    zeroPageAddr += X;
+                    cycles--;
+                    Word effectiveAddr = readWord(cycles, zeroPageAddr, memory);
+
+                    A ^= readByte(cycles, effectiveAddr, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+                case INS_EOR_INDY:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    zeroPageAddr += Y;
+                    cycles--;
+                    Word effectiveAddr = readWord(cycles, zeroPageAddr, memory);
+
+                    A ^= readByte(cycles, effectiveAddr, memory);
+                    setZeroAndNegativeFlags(A);
+                } break;
+
+
+                case INS_BIT_ZP:{
+                    Byte zeroPageAddr = fetchByte(cycles, memory);
+                    Byte value = readByte(cycles, zeroPageAddr, memory);
+                    
+                    stflag.Z = !(A & value);
+                    stflag.N = (value & NegativeFlagBit) != 0;
+                    stflag.V = (value & OverflowFlagBit) != 0;
+                } break;
+
+                case INS_BIT_ABS:{
+                    Word absAddr = fetchWord(cycles, memory);
+                    Byte value = readByte(cycles, absAddr, memory);
+                    
+                    stflag.Z = !(A & value);
+                    stflag.N = (value & NegativeFlagBit) != 0;
+                    stflag.V = (value & OverflowFlagBit) != 0;
                 } break;
 
 

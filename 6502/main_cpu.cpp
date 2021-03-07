@@ -1,6 +1,5 @@
 #include "6502_cpu.h"
-
-
+#include "cmd_map.h"
 
 int main(){
     m6502::CPU cpu;    // Create CPU
@@ -32,7 +31,6 @@ int main(){
     cpu.exec(6, mem);
     cout << "Final register status\n";
     cpu.printStatus();
-    
 
     return 0;
 }

@@ -1,6 +1,9 @@
-// // Datasheet : http://www.obelisk.me.uk/6502/
+// Datasheet : http://www.obelisk.me.uk/6502/
 
 #include <iostream>
+#include <fstream>
+#include <string>
+#include <sstream>
 using namespace std;
 
 namespace m6502{
@@ -189,6 +192,28 @@ struct m6502::CPU{
         A = X = Y = 0;
         memory.initialise();
 	}
+
+    void loadROM(Word& codeSegAddr, Mem& memory){
+        string line;
+        ifstream myfile("ROM.asm");
+
+        if(myfile.is_open()){
+            while(getline(myfile, line)){
+
+                std::stringstream hexStringStream; 
+                hexStringStream >> std::hex;
+
+                hexStringStream.clear();
+                hexStringStream.str(line);
+
+                int tmpValue = 0;
+                hexStringStream >> tmpValue;
+
+                memory[codeSegAddr++] = static_cast<unsigned char>(tmpValue);
+            }
+            myfile.close();
+        }
+    }
 
     void exec(u32 cycles, Mem& memory){
         while(cycles > 0){
